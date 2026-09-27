@@ -7761,9 +7761,8 @@ inputEl.addEventListener("pointerdown", focusInputWithoutPageScroll);
 inputEl.addEventListener("compositionstart", () => composing = true);
 inputEl.addEventListener("compositionend",   () => composing = false);
 function syncComposer(){
-  const hasText = inputEl.value.trim().length > 0;
-  sendBtn.classList.toggle("hidden", !hasText);
-  micBtn.classList.toggle("hidden", hasText);
+  sendBtn.classList.remove("hidden");
+  micBtn.classList.remove("hidden");
 }
 inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
@@ -7831,6 +7830,9 @@ function voiceRecStop(){
 micBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); if (!voiceRecording) voiceRecStart(); });
 micBtn.addEventListener("pointerup",   () => { if (voiceRecording) voiceRecStop(); });
 micBtn.addEventListener("pointercancel", () => { if (voiceRecording) voiceRecStop(); });
+micBtn.addEventListener("touchstart", (e) => { e.preventDefault(); if (!voiceRecording) voiceRecStart(); }, { passive:false });
+micBtn.addEventListener("touchend",   (e) => { e.preventDefault(); if (voiceRecording) voiceRecStop(); }, { passive:false });
+micBtn.addEventListener("touchcancel", () => { if (voiceRecording) voiceRecStop(); });
 micBtn.addEventListener("touchmove", (e) => { if (voiceRecording && e.touches.length){ const t = e.touches[0]; if (t.clientY < 60) micBtn.classList.add("slide-cancel"); else micBtn.classList.remove("slide-cancel"); } });
 });
 syncComposer();
