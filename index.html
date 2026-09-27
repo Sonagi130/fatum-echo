@@ -23,6 +23,24 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 
 <script>
+/* ── v5 诊断: 顶部状态条 + 全局错误捕获 ── */
+window.__vd = function(msg){
+  try{
+    var el = document.getElementById("voiceDiag");
+    if (!el){
+      el = document.createElement("div");
+      el.id = "voiceDiag";
+      el.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;background:rgba(0,0,0,.88);color:#4dff4d;font:11px/1.5 monospace;padding:5px 10px;text-align:center;display:block;pointer-events:none;word-break:break-all;";
+      document.body.appendChild(el);
+    }
+    el.style.display = "block";
+    el.textContent = "[" + new Date().toISOString().slice(11,19) + "] " + msg;
+    try{ if (window.HearthBridge && HearthBridge.toast) HearthBridge.toast(String(msg).slice(0,120)); }catch(_){}
+  }catch(e){}
+};
+window.addEventListener("error", function(e){ try{ __vd("JSERR: " + String((e && (e.message || e.error)) || "").slice(0,140)); }catch(_){} });
+window.addEventListener("unhandledrejection", function(e){ try{ __vd("REJ: " + String((e && e.reason) || "").slice(0,140)); }catch(_){} });
+window.addEventListener("load", function(){ try{ __vd("v5 loaded, mic=" + (!!document.getElementById("micBtn"))); }catch(_){} });
   /* Theme: two presets (light=Pearl / harbor). Persisted in localStorage companion_theme. Set data-theme early to avoid a first-paint flash. */
   (function(){
     var THEMES = ["light","harbor"];
@@ -3215,7 +3233,7 @@ const CONFIG = {
 };
 const AI_NAME = CONFIG.AI_NAME, HUMAN_NAME = CONFIG.HUMAN_NAME, APP_NAME = CONFIG.APP_NAME;
 
-const API_BASE = "http://api.guhuai724.top/relay";       // same-origin; nginx mounts the relay here (RELAY_PUBLIC_PREFIX)
+const API_BASE = "https://api.guhuai724.top/relay";       // same-origin; nginx mounts the relay here (RELAY_PUBLIC_PREFIX)
 const USE_MOCK  = false;          // true = self-contained demo with fake data (no backend needed)
 const LS_KEY    = "companion_secret";
 
@@ -3520,7 +3538,7 @@ if (deskPanel) deskPanel.addEventListener("click", (e) => {
   else if (which === "settings"){ closeDesk(); openDeskSettings(); }
   else if (which === "mcp"){ closeDesk(); openMcpPanel(); }
   else if (which === "tools"){ closeDesk(); openToolsPanel(); }
-  else if (which === "read"){ closeDesk(); location.assign("http://api.guhuai724.top/read/"); }
+  else if (which === "read"){ closeDesk(); location.assign("https://api.guhuai724.top/read/"); }
   else showToast("即将开放");        // listen / play / dream / mail … placeholder
 });
 /* ── Learn (专注学习 · 番茄钟 + 热力图) ── */
@@ -6064,7 +6082,7 @@ function attUrl(u){
   let full = u;
   // 后端返回的是相对路径(/relay/uploads/xxx) → 补全成 API 域名,否则浏览器会解析到 GitHub Pages 上 → 404
   if (/^\//.test(full)){
-    try{ full = new URL(API_BASE).origin + full; }catch(_){ full = "http://api.guhuai724.top" + full; }
+    try{ full = new URL(API_BASE).origin + full; }catch(_){ full = "https://api.guhuai724.top" + full; }
   }
   return full + (full.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(secret || "");
 }
@@ -7770,7 +7788,7 @@ inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
   inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
   syncComposer();
-
+});
 // ── 按住说话：录音 → 上传 /app/voice → 后端 ASR 转文字 ──
 let voiceRec = null, voiceStream = null, voiceChunks = [];
 let voiceRecording = false;
@@ -7783,14 +7801,20 @@ function voiceTip(msg){
   try{ if (window.HearthBridge && HearthBridge.toast) HearthBridge.toast(msg); }catch(_){}
 }
 async function voiceRecStart(){
+  __vd("tap! s=" + voiceStarting + " r=" + voiceRecording + " sup=" + voiceRecSupported() + " secure=" + (window.isSecureContext===true?"Y":"N"));
   if (voiceStarting || voiceRecording) return;
   if (!voiceRecSupported()){
     voiceTip("这个浏览器不支持录音");
+    __vd("不支持录音: mediaDevices=" + !!navigator.mediaDevices + " getUserMedia=" + !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) + " MediaRecorder=" + !!window.MediaRecorder);
     return;
   }
   voiceStarting = true;
   try{
+    __vd("requesting mic...");
+    var gumTimer = setTimeout(function(){ __vd("MIC TIMEOUT 5s - getUserMedia hung"); }, 5000);
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+    clearTimeout(gumTimer);
+    __vd("mic granted, creating recorder...");
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
     voiceRec = new MediaRecorder(voiceStream, { mimeType: mime });
     voiceChunks = [];
@@ -7801,21 +7825,25 @@ async function voiceRecStart(){
     micBtn.classList.add("recording");
     micBtn.setAttribute("aria-label", "松开结束");
     try{ if (navigator.vibrate) navigator.vibrate(30); }catch(_){}
-    voiceTip("录音中，松开发送");
+    __vd("RECORDING... 再点一下发送");
+    voiceTip("录音中，再点一下发送");
     if (voicePendingStop){ voicePendingStop = false; voiceRecStop(); }
   }catch(e){
+    __vd("MIC FAIL: " + (e && (e.name || e.message)) + " | " + String(e));
     voiceTip("麦克风打不开：" + (e.name || e.message));
   }finally{
     voiceStarting = false;
   }
 }
 async function voiceSend(){
-  if (!voiceChunks.length) return;
+  __vd("send! chunks=" + voiceChunks.length);
+  if (!voiceChunks.length){ __vd("no chunks, abort"); return; }
   const blob = new Blob(voiceChunks, { type: "audio/webm" });
+  __vd("blob size=" + blob.size);
   voiceChunks = [];
   micBtn.classList.remove("recording");
-  micBtn.setAttribute("aria-label", "按住说话");
-  if (blob.size < 1200) return;
+  micBtn.setAttribute("aria-label", "语音");
+  if (blob.size < 1200){ __vd("too small " + blob.size + "b, drop"); return; }
   try{
     const qs = new URLSearchParams({ name: "voice-" + Date.now() + ".webm" });
     const r = await fetch(`${API_BASE}/app/voice?${qs.toString()}`, {
@@ -7835,6 +7863,7 @@ async function voiceSend(){
 }
 function voiceRecStop(){
   voicePendingStop = false;
+  __vd("stop, sending...");
   if (voiceRec && voiceRec.state !== "inactive"){
     try{ voiceRec.stop(); }catch(e){}
   }
@@ -7844,16 +7873,22 @@ function voiceRecStop(){
   }
   voiceRecording = false;
 }
-function voiceStartEvt(e){ if (e && e.preventDefault) e.preventDefault(); voiceRecStart(); }
-function voiceStopEvt(e){ if (e && e.preventDefault) e.preventDefault(); if (voiceStarting){ voicePendingStop = true; return; } if (voiceRecording) voiceRecStop(); }
-micBtn.addEventListener("pointerdown", voiceStartEvt);
-micBtn.addEventListener("pointerup", voiceStopEvt);
-micBtn.addEventListener("pointercancel", voiceStopEvt);
-micBtn.addEventListener("pointerleave", voiceStopEvt);
-micBtn.addEventListener("touchstart", voiceStartEvt, { passive:false });
-micBtn.addEventListener("touchend", voiceStopEvt, { passive:false });
-micBtn.addEventListener("touchcancel", voiceStopEvt, { passive:false });
-});
+var lastTapTs = 0;
+function voiceTapEvt(e){
+  if (e && e.preventDefault) e.preventDefault();
+  if (e && e.stopPropagation) e.stopPropagation();
+  var now = Date.now();
+  if (now - lastTapTs < 300) return;   // 防抖
+  lastTapTs = now;
+  if (voiceStarting) return;
+  if (voiceRecording){ voiceRecStop(); }
+  else { voiceRecStart(); }
+}
+micBtn.addEventListener("click", voiceTapEvt);
+micBtn.addEventListener("pointerup", voiceTapEvt);
+micBtn.addEventListener("touchend", voiceTapEvt, { passive:false });
+micBtn.addEventListener("pointerdown", function(e){ if (e) e.preventDefault(); });
+micBtn.addEventListener("touchstart", function(e){ e.preventDefault(); }, { passive:false });
 syncComposer();
 inputEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !composing){
