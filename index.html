@@ -7777,11 +7777,15 @@ let voiceRecording = false;
 function voiceRecSupported(){
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 }
-let voiceStarting = false;
+let voiceStarting = false, voicePendingStop = false;
+function voiceTip(msg){
+  showToast(msg);
+  try{ if (window.HearthBridge && HearthBridge.toast) HearthBridge.toast(msg); }catch(_){}
+}
 async function voiceRecStart(){
   if (voiceStarting || voiceRecording) return;
   if (!voiceRecSupported()){
-    showToast("这个浏览器不支持录音");
+    voiceTip("这个浏览器不支持录音");
     return;
   }
   voiceStarting = true;
@@ -7797,9 +7801,10 @@ async function voiceRecStart(){
     micBtn.classList.add("recording");
     micBtn.setAttribute("aria-label", "松开结束");
     try{ if (navigator.vibrate) navigator.vibrate(30); }catch(_){}
-    showToast("录音中，松开发送");
+    voiceTip("录音中，松开发送");
+    if (voicePendingStop){ voicePendingStop = false; voiceRecStop(); }
   }catch(e){
-    showToast("麦克风打不开：" + (e.name || e.message));
+    voiceTip("麦克风打不开：" + (e.name || e.message));
   }finally{
     voiceStarting = false;
   }
@@ -7818,16 +7823,18 @@ async function voiceSend(){
       headers: { ...authHeaders(), "Content-Type": blob.type || "audio/webm" },
       body: blob
     });
-    if (r.status === 401){ handle401(); return; }
-    if (!r.ok){ showToast("语音发送失败 " + r.status); return; }
+    if (r.status === 401){ voiceTip("密钥失效，请重新连接"); handle401(); return; }
+    if (!r.ok){ voiceTip("语音发送失败 " + r.status); return; }
     const d = await r.json();
-    if (d && d.text && !d.text.startsWith("🎤")) showToast("已转文字：" + d.text.slice(0, 20) + "…");
-    else if (d && d.text) showToast("语音已发送");
+    if (d && d.text && !d.text.startsWith("🎤")) voiceTip("已转文字：" + d.text.slice(0, 20) + "…");
+    else if (d && d.text) voiceTip("语音已发送");
+    else voiceTip("语音已发送");
   }catch(e){
-    showToast("语音发送失败");
+    voiceTip("语音发送失败：" + (e.message || e.name || "网络错误"));
   }
 }
 function voiceRecStop(){
+  voicePendingStop = false;
   if (voiceRec && voiceRec.state !== "inactive"){
     try{ voiceRec.stop(); }catch(e){}
   }
@@ -7837,10 +7844,15 @@ function voiceRecStop(){
   }
   voiceRecording = false;
 }
-micBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); voiceRecStart(); });
-micBtn.addEventListener("pointerup",   () => { if (voiceRecording) voiceRecStop(); });
-micBtn.addEventListener("pointercancel", () => { if (voiceRecording) voiceRecStop(); });
-micBtn.addEventListener("pointerleave", () => { if (voiceRecording) voiceRecStop(); });
+function voiceStartEvt(e){ if (e && e.preventDefault) e.preventDefault(); voiceRecStart(); }
+function voiceStopEvt(e){ if (e && e.preventDefault) e.preventDefault(); if (voiceStarting){ voicePendingStop = true; return; } if (voiceRecording) voiceRecStop(); }
+micBtn.addEventListener("pointerdown", voiceStartEvt);
+micBtn.addEventListener("pointerup", voiceStopEvt);
+micBtn.addEventListener("pointercancel", voiceStopEvt);
+micBtn.addEventListener("pointerleave", voiceStopEvt);
+micBtn.addEventListener("touchstart", voiceStartEvt, { passive:false });
+micBtn.addEventListener("touchend", voiceStopEvt, { passive:false });
+micBtn.addEventListener("touchcancel", voiceStopEvt, { passive:false });
 });
 syncComposer();
 inputEl.addEventListener("keydown", (e) => {
