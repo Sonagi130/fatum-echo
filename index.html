@@ -7762,7 +7762,8 @@ inputEl.addEventListener("compositionstart", () => composing = true);
 inputEl.addEventListener("compositionend",   () => composing = false);
 function syncComposer(){
   sendBtn.classList.remove("hidden");
-  micBtn.classList.remove("hidden");
+  if (appEl && appEl.classList.contains("kb")) micBtn.classList.add("hidden");
+  else micBtn.classList.remove("hidden");
 }
 inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
@@ -7775,11 +7776,14 @@ let voiceRecording = false;
 function voiceRecSupported(){
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 }
+let voiceStarting = false;
 async function voiceRecStart(){
+  if (voiceStarting || voiceRecording) return;
   if (!voiceRecSupported()){
     showToast("这个浏览器不支持录音");
     return;
   }
+  voiceStarting = true;
   try{
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
@@ -7791,8 +7795,12 @@ async function voiceRecStart(){
     voiceRecording = true;
     micBtn.classList.add("recording");
     micBtn.setAttribute("aria-label", "松开结束");
+    try{ if (navigator.vibrate) navigator.vibrate(30); }catch(_){}
+    showToast("录音中，松开发送");
   }catch(e){
     showToast("麦克风打不开：" + (e.name || e.message));
+  }finally{
+    voiceStarting = false;
   }
 }
 async function voiceSend(){
@@ -7813,6 +7821,7 @@ async function voiceSend(){
     if (!r.ok){ showToast("语音发送失败 " + r.status); return; }
     const d = await r.json();
     if (d && d.text && !d.text.startsWith("🎤")) showToast("已转文字：" + d.text.slice(0, 20) + "…");
+    else if (d && d.text) showToast("语音已发送");
   }catch(e){
     showToast("语音发送失败");
   }
@@ -7827,13 +7836,10 @@ function voiceRecStop(){
   }
   voiceRecording = false;
 }
-micBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); if (!voiceRecording) voiceRecStart(); });
+micBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); voiceRecStart(); });
 micBtn.addEventListener("pointerup",   () => { if (voiceRecording) voiceRecStop(); });
 micBtn.addEventListener("pointercancel", () => { if (voiceRecording) voiceRecStop(); });
-micBtn.addEventListener("touchstart", (e) => { e.preventDefault(); if (!voiceRecording) voiceRecStart(); }, { passive:false });
-micBtn.addEventListener("touchend",   (e) => { e.preventDefault(); if (voiceRecording) voiceRecStop(); }, { passive:false });
-micBtn.addEventListener("touchcancel", () => { if (voiceRecording) voiceRecStop(); });
-micBtn.addEventListener("touchmove", (e) => { if (voiceRecording && e.touches.length){ const t = e.touches[0]; if (t.clientY < 60) micBtn.classList.add("slide-cancel"); else micBtn.classList.remove("slide-cancel"); } });
+micBtn.addEventListener("pointerleave", () => { if (voiceRecording) voiceRecStop(); });
 });
 syncComposer();
 inputEl.addEventListener("keydown", (e) => {
@@ -8110,6 +8116,7 @@ if (window.visualViewport){
     const offset = kbOpen ? Math.max(0, Math.round(rawOffset)) : 0;
     document.documentElement.style.setProperty("--keyboard-offset", offset + "px");
     appEl.classList.toggle("kb", kbOpen);
+    syncComposer();
     if (kbOpen){
       scrollToBottom({ smooth: true });
       setTimeout(() => scrollToBottom({ smooth: true }), 90);
